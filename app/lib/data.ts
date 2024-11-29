@@ -1,87 +1,99 @@
-import { db, sql } from '@vercel/postgres';
-import {
-  CustomerField,
-  CustomersTableType,
-  InvoiceForm,
-  InvoicesTable,
-  LatestInvoiceRaw,
-  Revenue,
-} from './definitions';
+import { prisma } from '@/prisma/prisma'
 import { formatCurrency } from './utils';
-const client = await db.connect();
+import { type Invoice, type Customer, type Revenue, Prisma, Status } from '@prisma/client'
 
+
+/**
+ * Ανακτά τα δεδομένα εσόδων ταξινομημένα κατά μήνα
+ * Χρησιμοποιείται για το revenue chart στο dashboard
+ * Επιστρέφει: Array με μηνιαία έσοδα
+ */
 export async function fetchRevenue() {
   try {
-
-    // console.log('Fetching revenue data...');
-    // await new Promise((resolve) => setTimeout(resolve, 3000));
-   
-    const data = await client.sql`SELECT * FROM revenue ORDER BY month ASC`;
-
-    // console.log('Data fetch completed after 3 seconds.');
+    const revenue = await prisma.revenue.findMany({
+      orderBy: { month: 'asc' }
+    });
     
-    if (!data || !data.rows || data.rows.length === 0) {
+    if (!revenue.length) {
       throw new Error('No revenue data found');
     }
-    
-    return data.rows as Revenue[];
+    return revenue;
   } catch (error) {
     console.error('Database Error:', error);
     throw new Error('Failed to fetch revenue data.');
   }
 }
 
+/**
+ * Ανακτά τα τελευταία 5 πληρωμένα invoices
+ * Χρησιμοποιείται για το latest invoices στο dashboard
+ * Επιστρέφει: Array με τα τελευταία 5 πληρωμένα invoices
+ */
 export async function fetchLatestInvoices() {
   try {
-    const data = await client.sql`
-      SELECT invoices.amount, customers.name, customers.image_url, customers.email, invoices.id
-      FROM invoices
-      JOIN customers ON invoices.customer_id = customers.id
-      ORDER BY invoices.date DESC
-      LIMIT 5`;
+    const invoices = await prisma.invoice.findMany({
+      take: 5,
+      orderBy: { date: 'desc' },
+      include: {
+        customer: {
+          select: {
+            name: true,
+            email: true,
+            image_url: true
+          }
+        }
+      }
+    });
 
-    const latestInvoices = data.rows.map((invoice: any) => ({
-        id: invoice.id,
-        name: invoice.name,
-        image_url: invoice.image_url,
-        email: invoice.email,
-        amount: formatCurrency(invoice.amount), // Επιστρέφουμε το ακατέργαστο ποσό
+    return invoices.map((invoice) => ({
+      id: invoice.id,
+      name: invoice.customer.name,
+      email: invoice.customer.email,
+      image_url: invoice.customer.image_url,
+      amount: formatCurrency(invoice.amount)
     }));
-    return latestInvoices; 
   } catch (error) {
     console.error('Database Error:', error);
     throw new Error('Failed to fetch the latest invoices.');
   }
 }
 
+type InvoiceStatusResult = {
+  paid: number | null;
+  pending: number | null;
+}
+
+
+/**
+ * Ανακτά συγκεντρωτικά στοιχεία για το dashboard:
+ * - Συνολικό αριθμό τιμολογίων
+ * - Συνολικό αριθμό πελατών
+ * - Σύνολο πληρωμένων τιμολογίων
+ * - Σύνολο εκκρεμών τιμολογίων
+ * Χρησιμοποιείται στα cards του dashboard
+ * Επιστρέφει: Object με τα συγκεντρωτικά στοιχεία
+ */
 export async function fetchCardData() {
   try {
-    // You can probably combine these into a single SQL query
-    // However, we are intentionally splitting them to demonstrate
-    // how to initialize multiple queries in parallel with JS.
-    const invoiceCountPromise = client.sql`SELECT COUNT(*) FROM invoices`;
-    const customerCountPromise = client.sql`SELECT COUNT(*) FROM customers`;
-    const invoiceStatusPromise = client.sql`SELECT
-         SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS "paid",
-         SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS "pending"
-         FROM invoices`;
-
-    const data = await Promise.all([
-      invoiceCountPromise,
-      customerCountPromise,
-      invoiceStatusPromise,
+    const [invoiceCount, customerCount, invoiceStatus] = await Promise.all([
+      prisma.invoice.count(),
+      prisma.customer.count(),
+      prisma.$queryRaw<InvoiceStatusResult[]>` // Σημειώστε το [] εδώ
+        SELECT
+          SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS "paid",
+          SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS "pending"
+        FROM "Invoice"
+      `
     ]);
 
-    const numberOfInvoices = Number(data[0].rows[0].count ?? '0');
-    const numberOfCustomers = Number(data[1].rows[0].count ?? '0');
-    const totalPaidInvoices = formatCurrency(data[2].rows[0].paid ?? '0');
-    const totalPendingInvoices = formatCurrency(data[2].rows[0].pending ?? '0');
+    // Παίρνουμε το πρώτο αποτέλεσμα από το array
+    const [status] = invoiceStatus;
 
     return {
-      numberOfCustomers,
-      numberOfInvoices,
-      totalPaidInvoices,
-      totalPendingInvoices,
+      numberOfInvoices: invoiceCount,
+      numberOfCustomers: customerCount,
+      totalPaidInvoices: formatCurrency(status?.paid ?? 0),
+      totalPendingInvoices: formatCurrency(status?.pending ?? 0)
     };
   } catch (error) {
     console.error('Database Error:', error);
@@ -90,134 +102,147 @@ export async function fetchCardData() {
 }
 
 const ITEMS_PER_PAGE = 6;
-export async function fetchFilteredInvoices(
-  query: string,
-  currentPage: number,
-) {
-  const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
-  try {
-    const invoices = await sql<InvoicesTable>`
-      SELECT
-        invoices.id,
-        invoices.amount,
-        invoices.date,
-        invoices.status,
-        customers.name,
-        customers.email,
-        customers.image_url
-      FROM invoices
-      JOIN customers ON invoices.customer_id = customers.id
-      WHERE
-        customers.name ILIKE ${`%${query}%`} OR
-        customers.email ILIKE ${`%${query}%`} OR
-        invoices.amount::text ILIKE ${`%${query}%`} OR
-        invoices.date::text ILIKE ${`%${query}%`} OR
-        invoices.status ILIKE ${`%${query}%`}
-      ORDER BY invoices.date DESC
-      LIMIT ${ITEMS_PER_PAGE} OFFSET ${offset}
-    `;
-
-    return invoices.rows;
-  } catch (error) {
-    console.error('Database Error:', error);
-    throw new Error('Failed to fetch invoices.');
-  }
+/**
+ * Ελέγχει αν ένα string είναι έγκυρο Status (pending ή paid)
+ * Χρησιμοποιείται ως type guard για το TypeScript
+ */
+function isValidStatus(value: string): value is Status {
+  return value === 'pending' || value === 'paid';
 }
 
+/**
+ * Ανακτά τον αριθμό των σελίδων των invoices με βάση το query
+ * Χρησιμοποιείται για την προσθήκη pagination στην invoices page
+ * Επιστρέφει: Αριθμός σελίδων
+ */
 export async function fetchInvoicesPages(query: string) {
   try {
-    const count = await sql`SELECT COUNT(*)
-    FROM invoices
-    JOIN customers ON invoices.customer_id = customers.id
-    WHERE
-      customers.name ILIKE ${`%${query}%`} OR
-      customers.email ILIKE ${`%${query}%`} OR
-      invoices.amount::text ILIKE ${`%${query}%`} OR
-      invoices.date::text ILIKE ${`%${query}%`} OR
-      invoices.status ILIKE ${`%${query}%`}
-  `;
+    // Δημιουργούμε το array με τα conditions
+    const whereConditions: Prisma.InvoiceWhereInput[] = [
+      { customer: { name: { contains: query, mode: 'insensitive' } } },
+      { customer: { email: { contains: query, mode: 'insensitive' } } }
+    ];
 
-    const totalPages = Math.ceil(Number(count.rows[0].count) / ITEMS_PER_PAGE);
-    return totalPages;
+    // Προσθέτουμε το amount αν είναι αριθμός
+    if (!isNaN(Number(query))) {
+      whereConditions.push({ amount: { equals: Number(query) } });
+    }
+
+    // Προσθέτουμε το status αν είναι valid
+    if (isValidStatus(query)) {
+      whereConditions.push({ status: query });
+    }
+
+    const count = await prisma.invoice.count({
+      where: {
+        OR: whereConditions
+      }
+    });
+    
+    return Math.ceil(count / ITEMS_PER_PAGE);
   } catch (error) {
     console.error('Database Error:', error);
     throw new Error('Failed to fetch total number of invoices.');
   }
 }
 
+/**
+ * Ανακτά τα στοιχεία ενός invoice με βάση το id
+ * Χρησιμοποιείται για την προσθήκη pagination στην invoices page
+ * Επιστρέφει: Object με τα στοιχεία του invoice
+ */
 export async function fetchInvoiceById(id: string) {
   try {
-    const data = await sql<InvoiceForm>`
-      SELECT
-        invoices.id,
-        invoices.customer_id,
-        invoices.amount,
-        invoices.status
-      FROM invoices
-      WHERE invoices.id = ${id};
-    `;
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        customer_id: true,
+        amount: true,
+        status: true
+      }
+    });
 
-    const invoice = data.rows.map((invoice) => ({
+    if (!invoice) {
+      throw new Error('Invoice not found');
+    }
+
+    return {
       ...invoice,
-      // Convert amount from cents to dollars
-      amount: invoice.amount / 100,
-    }));
-
-    return invoice[0];
+      amount: invoice.amount / 100 // Convert amount from cents to dollars
+    };
   } catch (error) {
     console.error('Database Error:', error);
     throw new Error('Failed to fetch invoice.');
   }
 }
 
+/**
+ * Ανακτά όλους τους πελάτες ταξινομημένους με βάση το όνομα
+ * Χρησιμοποιείται για την προσθήκη pagination στην customers page
+ * Επιστρέφει: Array με όλους τους πελάτες
+ */
 export async function fetchCustomers() {
   try {
-    const data = await sql<CustomerField>`
-      SELECT
-        id,
-        name
-      FROM customers
-      ORDER BY name ASC
-    `;
-
-    const customers = data.rows;
-    return customers;
-  } catch (err) {
-    console.error('Database Error:', err);
+    return await prisma.customer.findMany({
+      select: {
+        id: true,
+        name: true
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+  } catch (error) {
+    console.error('Database Error:', error);
     throw new Error('Failed to fetch all customers.');
   }
 }
 
+// Ορίζουμε τον τύπο για το αποτέλεσμα του SQL query
+type CustomerWithAggregates = {
+  id: string;
+  name: string;
+  email: string;
+  image_url: string;
+  total_invoices: number;
+  total_pending: number;
+  total_paid: number;
+}
+
+/**
+ * Ανακτά τα στοιχεία των πελατών με βάση το query
+ * Χρησιμοποιείται για την προσθήκη pagination στην customers page
+ * Επιστρέφει: Array με τα στοιχεία των πελατών
+ */
 export async function fetchFilteredCustomers(query: string) {
   try {
-    const data = await sql<CustomersTableType>`
-		SELECT
-		  customers.id,
-		  customers.name,
-		  customers.email,
-		  customers.image_url,
-		  COUNT(invoices.id) AS total_invoices,
-		  SUM(CASE WHEN invoices.status = 'pending' THEN invoices.amount ELSE 0 END) AS total_pending,
-		  SUM(CASE WHEN invoices.status = 'paid' THEN invoices.amount ELSE 0 END) AS total_paid
-		FROM customers
-		LEFT JOIN invoices ON customers.id = invoices.customer_id
-		WHERE
-		  customers.name ILIKE ${`%${query}%`} OR
+    const customers = await prisma.$queryRaw<CustomerWithAggregates[]>`
+      SELECT
+        customers.id,
+        customers.name,
+        customers.email,
+        customers.image_url,
+        COUNT(invoices.id) AS total_invoices,
+        SUM(CASE WHEN invoices.status = ${Status.pending} THEN invoices.amount ELSE 0 END) AS total_pending,
+        SUM(CASE WHEN invoices.status = ${Status.paid} THEN invoices.amount ELSE 0 END) AS total_paid
+      FROM "Customer" customers
+      LEFT JOIN "Invoice" invoices ON customers.id = invoices.customer_id
+      WHERE
+        customers.name ILIKE ${`%${query}%`} OR
         customers.email ILIKE ${`%${query}%`}
-		GROUP BY customers.id, customers.name, customers.email, customers.image_url
-		ORDER BY customers.name ASC
-	  `;
+      GROUP BY customers.id, customers.name, customers.email, customers.image_url
+      ORDER BY customers.name ASC
+    `;
 
-    const customers = data.rows.map((customer) => ({
+    return customers.map((customer) => ({
       ...customer,
-      total_pending: formatCurrency(customer.total_pending),
-      total_paid: formatCurrency(customer.total_paid),
+      total_pending: formatCurrency(customer.total_pending ?? 0),
+      total_paid: formatCurrency(customer.total_paid ?? 0)
     }));
-
-    return customers;
-  } catch (err) {
-    console.error('Database Error:', err);
+  } catch (error) {
+    console.error('Database Error:', error);
     throw new Error('Failed to fetch customer table.');
   }
 }
