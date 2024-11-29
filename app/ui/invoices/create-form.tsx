@@ -1,6 +1,7 @@
 'use client';
 
-import { CustomerField } from '@/app/lib/definitions';
+import { type Customer } from '@prisma/client';
+
 import Link from 'next/link';
 import {
   CheckIcon,
@@ -14,9 +15,9 @@ import { createInvoice, State } from '@/app/lib/actions';
 import { useState } from 'react';
 import { CreateInvoiceSchema } from '@/app/lib/schemas';
 import { z } from 'zod';
+import { Status } from '@prisma/client';
 
-export default function Form({ customers }: { customers: CustomerField[] }) {
-
+export default function Form({ customers }: { customers: Pick<Customer, 'id' | 'name'>[] }) {
   // State for the form (server side validation)
   const initialState = {
     message: '',
@@ -33,10 +34,15 @@ export default function Form({ customers }: { customers: CustomerField[] }) {
   });
 
   // Ορισμός των τύπων για τα πεδία της φόρμας
-  type FieldName = 'customerId' | 'amount' | 'status';
-  type FieldValue = string;
+  type FormField = {
+    customerId: string;
+    amount: string;
+    status: Status | ''; // Χρησιμοποιούμε το Status enum
+  }
+  type FieldName = keyof FormField;
+  
 
-  const validateField = (name: FieldName, value: FieldValue) => {
+  const validateField = (name: FieldName, value: string) => {
     try {
       if (name === 'customerId') {
         CreateInvoiceSchema.shape.customerId.parse(value);
@@ -180,7 +186,7 @@ export default function Form({ customers }: { customers: CustomerField[] }) {
                   id="pending"
                   name="status"
                   type="radio"
-                  value="pending"
+                  value={Status.pending}
                   checked={formValues.status === 'pending'}
                   onChange={(e) => {
                     setFormValues(prev => ({ ...prev, status: e.target.value }));
@@ -201,7 +207,7 @@ export default function Form({ customers }: { customers: CustomerField[] }) {
                   id="paid"
                   name="status"
                   type="radio"
-                  value="paid"
+                  value={Status.paid}
                   checked={formValues.status === 'paid'}  // Προσθήκη checked
                   onChange={(e) => {
                     setFormValues(prev => ({ ...prev, status: e.target.value }));

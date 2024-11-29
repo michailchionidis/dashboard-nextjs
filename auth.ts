@@ -3,8 +3,10 @@ import Credentials from 'next-auth/providers/credentials';
 import { authConfig } from './auth.config';
 import { db, sql } from '@vercel/postgres';
 import { z } from 'zod';
-import type { User } from '@/app/lib/definitions';
 import bcrypt from 'bcrypt';
+import { prisma } from '@/prisma/prisma'
+import { type User } from '@prisma/client' // Αλλαγή του import
+
 
 // Validation schema
 const credentialsSchema = z.object({ 
@@ -12,26 +14,19 @@ const credentialsSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters')
 });
 
-async function getUser(email: string): Promise<User | undefined> {
-  let client;
+async function getUser(email: string): Promise<User | null> {
   try {
-    client = await db.connect();
+    const user = await prisma.user.findUnique({
+      where: {
+        email: email
+      }
+    });
     
-    // Χρήση parameterized query για ασφάλεια
-    const result = await client.sql<User>`
-      SELECT * FROM users 
-      WHERE email = ${email}
-      LIMIT 1
-    `;
-
-    return result.rows[0];
+    return user;
   } 
   catch (error) {
     console.error('Failed to fetch user:', error);
     throw new Error('Authentication failed. Please try again later.');
-  }
-  finally {
-    await client?.release();
   }
 }
 

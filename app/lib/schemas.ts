@@ -1,4 +1,5 @@
 // app/lib/schemas.ts
+import { Status } from '@prisma/client';
 import { z } from 'zod';
 
 export const InvoiceSchema = z.object({
@@ -9,7 +10,7 @@ export const InvoiceSchema = z.object({
   amount: z.coerce.number().positive({
     message: 'Please enter an amount greater than $0.',
   }),
-  status: z.enum(['pending', 'paid'], {
+  status: z.nativeEnum(Status, {
     invalid_type_error: 'Please select an invoice status.',
   }),
   date: z.string(),

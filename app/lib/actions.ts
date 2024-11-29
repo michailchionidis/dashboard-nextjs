@@ -6,6 +6,8 @@ import { redirect } from 'next/navigation';
 import { InvoiceSchema } from './schemas';
 import { signIn } from '@/auth';
 import { AuthError } from 'next-auth';
+import { Status } from '@prisma/client';
+import { prisma } from '@/prisma/prisma'
 const CreateInvoice = InvoiceSchema.omit({ id: true, date: true });
 const UpdateInvoice = InvoiceSchema.omit({ id: true, date: true });
 
@@ -18,18 +20,14 @@ export type State = {
     message?: string | null;
   };
 
-export async function createInvoice(prevState: State, formData: FormData) {
-    let client;
+  export async function createInvoice(prevState: State, formData: FormData) {
     try {
         const validatedFields = CreateInvoice.safeParse({
             customerId: formData.get('customerId'),
             amount: formData.get('amount'),
             status: formData.get('status'),
         });
-
-        console.log(validatedFields);
-        
-        // If there are errors, return them and the previous state  
+ 
         if (!validatedFields.success) {
             return {
                 errors: validatedFields.error.flatten().fieldErrors,
@@ -39,32 +37,31 @@ export async function createInvoice(prevState: State, formData: FormData) {
  
         const { customerId, amount, status } = validatedFields.data;
         const amountInCents = amount * 100;
-        const date = new Date().toISOString().split('T')[0];
+        
+        // Δημιουργούμε πλήρη ISO datetime string
+        const date = new Date().toISOString();
 
-        client = await db.connect();
-        await client.sql`
-            INSERT INTO invoices (customer_id, amount, status, date)
-            VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
-        `;
+        await prisma.invoice.create({
+            data: {
+                customer_id: customerId,
+                amount: amountInCents,
+                status: status as Status,
+                date: new Date(date), // Μετατρέπουμε το string σε Date object
+            },
+        });
 
-        // Καθαρίζουμε το cache
         revalidatePath('/dashboard/invoices');
         
     } catch (error) {
         console.error('Database Error:', error);
         return {
-            message: 'Database Error: Failed to Create Invoice. \n Error message: ${error}',
+            message: `Database Error: Failed to Create Invoice. Error message: ${error}`,
         };
-    } finally {
-        if (client) client.release();
-    }
-
-    // Ανακατευθύνουμε τον χρήστη μόνο αν η λειτουργία ολοκληρωθεί επιτυχώς
+    } 
     redirect('/dashboard/invoices');
 }
 
 export async function updateInvoice(id: string, prevState: State, formData: FormData) {
-    let client;
     try {
 
         const validatedFields = UpdateInvoice.safeParse({
@@ -81,15 +78,17 @@ export async function updateInvoice(id: string, prevState: State, formData: Form
             };
         }
 
-        client = await db.connect();
         const { customerId, amount, status } = validatedFields.data;
         const amountInCents = amount * 100;
     
-        await client.sql`
-            UPDATE invoices
-            SET customer_id = ${customerId}, amount = ${amountInCents}, status = ${status}
-            WHERE id = ${id}
-        `;
+        await prisma.invoice.update({
+            where: { id },
+            data: {
+              customer_id: customerId,
+              amount: amountInCents,
+              status: status as Status,
+            },
+        });
 
         revalidatePath('/dashboard/invoices');
     } catch (error) {
@@ -97,26 +96,21 @@ export async function updateInvoice(id: string, prevState: State, formData: Form
         return {
             message: 'Database Error: Failed to Update Invoice. \n Error message: ${error}',
         };
-    } finally {
-        if (client) client.release();
-    }
+    } 
     redirect('/dashboard/invoices');
-
 }
 
 export async function deleteInvoice(id: string) {
-    let client;
     try {
-        client = await db.connect();
-        await client.sql`DELETE FROM invoices WHERE id = ${id}`;
+        await prisma.invoice.delete({
+            where: { id },
+        });
         revalidatePath('/dashboard/invoices');
     } catch (error) {
         console.error('Database Error:', error);
         return {
             message: 'Database Error: Failed to Delete Invoice. \n Error message: ${error}',
         };
-    } finally {
-        if (client) client.release();
     }
 }
 

@@ -2,6 +2,8 @@ import { generateYAxis } from '@/app/lib/utils';
 import { CalendarIcon } from '@heroicons/react/24/outline';
 import { lusitana } from '@/app/ui/fonts';
 import { fetchRevenue } from '@/app/lib/data';
+import { formatDateToLocal } from '@/app/lib/utils';
+
 
 // This component is representational only.
 // For data visualization UI, check out:
@@ -36,7 +38,7 @@ export default async function RevenueChart() {
           </div>
 
           {revenue.map((month) => (
-            <div key={month.month} className="flex flex-col items-center gap-2">
+            <div key={month.month.toString()} className="flex flex-col items-center gap-2">
               <div
                 className="w-full rounded-md bg-blue-300"
                 style={{
@@ -44,7 +46,7 @@ export default async function RevenueChart() {
                 }}
               ></div>
               <p className="-rotate-90 text-sm text-gray-400 sm:rotate-0">
-                {month.month}
+                {formatDateToLocal(month.month)}
               </p>
             </div>
           ))}

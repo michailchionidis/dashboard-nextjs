@@ -4,7 +4,8 @@
     "build": "DATABASE_URL=$POSTGRES_URL prisma generate && next build",
     "dev": "next dev --turbo",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed": "NODE_PATH=. ts-node --project tsconfig.seed.json prisma/seed.ts"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.4",
@@ -31,7 +32,8 @@
     "@types/react-dom": "npm:types-react-dom@19.0.0-rc.1",
     "eslint": "^9",
     "eslint-config-next": "15.0.3",
-    "prisma": "^6.0.0"
+    "prisma": "^6.0.0",
+    "ts-node": "^10.9.2"
   },
   "pnpm": {
     "overrides": {

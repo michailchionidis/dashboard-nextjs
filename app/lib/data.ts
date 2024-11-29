@@ -1,6 +1,6 @@
 import { prisma } from '@/prisma/prisma'
 import { formatCurrency } from './utils';
-import { type Invoice, type Customer, type Revenue, Prisma, Status } from '@prisma/client'
+import { Prisma, Status } from '@prisma/client'
 
 
 /**
@@ -78,7 +78,7 @@ export async function fetchCardData() {
     const [invoiceCount, customerCount, invoiceStatus] = await Promise.all([
       prisma.invoice.count(),
       prisma.customer.count(),
-      prisma.$queryRaw<InvoiceStatusResult[]>` // Σημειώστε το [] εδώ
+      prisma.$queryRaw<InvoiceStatusResult[]>`
         SELECT
           SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS "paid",
           SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS "pending"
@@ -102,6 +102,58 @@ export async function fetchCardData() {
 }
 
 const ITEMS_PER_PAGE = 6;
+
+export async function fetchFilteredInvoices(
+  query: string,
+  currentPage: number,
+) {
+  const offset = (currentPage - 1) * ITEMS_PER_PAGE;
+
+  try {
+    const invoices = await prisma.invoice.findMany({
+      select: {
+        id: true,
+        amount: true,
+        date: true,
+        status: true,
+        customer: {
+          select: {
+            name: true,
+            email: true,
+            image_url: true,
+          },
+        },
+      },
+      where: {
+        OR: [
+          { customer: { name: { contains: query, mode: 'insensitive' } } },
+          { customer: { email: { contains: query, mode: 'insensitive' } } },
+          { amount: { equals: isNaN(Number(query)) ? undefined : Number(query) } },
+          { date: { equals: isNaN(Date.parse(query)) ? undefined : new Date(query) } },
+          { status: query.toLowerCase() === 'pending' ? Status.pending : 
+            query.toLowerCase() === 'paid' ? Status.paid : undefined },
+        ],
+      },
+      orderBy: {
+        date: 'desc',
+      },
+      take: ITEMS_PER_PAGE,
+      skip: offset,
+    });
+
+    // Μετατροπή της δομής για να ταιριάζει με το UI
+    return invoices.map(invoice => ({
+      ...invoice,
+      ...invoice.customer,
+      // Αφαιρούμε το nested customer object
+      customer: undefined,
+    }));
+
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw new Error('Failed to fetch invoices.');
+  }
+}
 
 /**
  * Ελέγχει αν ένα string είναι έγκυρο Status (pending ή paid)

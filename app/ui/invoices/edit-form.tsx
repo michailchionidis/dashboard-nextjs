@@ -1,6 +1,6 @@
 'use client';
 
-import { CustomerField, InvoiceForm } from '@/app/lib/definitions';
+import { type Customer, type Invoice, Status } from '@prisma/client';
 import {
   CheckIcon,
   ClockIcon,
@@ -18,8 +18,8 @@ import { z } from 'zod';
 type FormField = {
   customerId: string;
   amount: string;
-  status: 'pending' | 'paid';
-};
+  status: Status | ''; // Χρησιμοποιούμε το Status enum
+}
 
 type FieldName = keyof FormField;
 
@@ -27,8 +27,8 @@ export default function EditInvoiceForm({
   invoice,
   customers,
 }: {
-  invoice: InvoiceForm;
-  customers: CustomerField[];
+  invoice: Pick<Invoice, 'id' | 'customer_id' | 'amount' | 'status'>;
+  customers: Pick<Customer, 'id' | 'name'>[];
 }) {
   // State για server-side validation
   const initialState = {
@@ -52,16 +52,20 @@ export default function EditInvoiceForm({
   //   setIsMounted(true);
   // }, []);
 
-  const validateField = (name: FieldName, value: FormField[FieldName]) => {
+  const validateField = (name: FieldName, value: string) => {
     try {
       if (name === 'customerId') {
         CreateInvoiceSchema.shape.customerId.parse(value);
       } else if (name === 'amount') {
         CreateInvoiceSchema.shape.amount.parse(Number(value));
       } else if (name === 'status') {
+        // Ελέγχουμε αν η τιμή είναι έγκυρο Status
+        if (value !== Status.pending && value !== Status.paid) {
+          throw new Error('Invalid status');
+        }
         CreateInvoiceSchema.shape.status.parse(value);
       }
-
+  
       setClientErrors(prev => {
         const newErrors = { ...prev };
         delete newErrors[name];
@@ -187,10 +191,10 @@ export default function EditInvoiceForm({
                   id="pending"
                   name="status"
                   type="radio"
-                  value="pending"
-                  checked={formValues.status === 'pending'}
+                  value={Status.pending}
+                  checked={formValues.status === Status.pending}
                   onChange={(e) => {
-                    setFormValues(prev => ({ ...prev, status: e.target.value as 'pending' | 'paid' }));
+                    setFormValues(prev => ({ ...prev, status: e.target.value as Status }));
                     validateField('status', e.target.value);
                   }}
                   className="h-4 w-4 cursor-pointer border-gray-300 bg-gray-100 text-gray-600 focus:ring-2"
@@ -208,10 +212,10 @@ export default function EditInvoiceForm({
                   id="paid"
                   name="status"
                   type="radio"
-                  value="paid"
-                  checked={formValues.status === 'paid'}
+                  value={Status.paid}
+                  checked={formValues.status === Status.paid}
                   onChange={(e) => {
-                    setFormValues(prev => ({ ...prev, status: e.target.value as 'pending' | 'paid' }));
+                    setFormValues(prev => ({ ...prev, status: e.target.value as Status }));
                     validateField('status', e.target.value);
                   }}
                   className="h-4 w-4 cursor-pointer border-gray-300 bg-gray-100 text-gray-600 focus:ring-2"
@@ -248,7 +252,7 @@ export default function EditInvoiceForm({
             disabled={!isFormValid()}
             aria-describedby="submit-error"
           >
-            Create Invoice
+            Edit Invoice
           </Button>
           {!isFormValid() && (
             <div
