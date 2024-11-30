@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { getDatabaseUrl } from '@/app/lib/db'
 
+// Global caching for the Prisma client
 const globalForPrisma = global as unknown as {
   prisma: PrismaClient | undefined
 }
