@@ -1,6 +1,7 @@
 {
     "buildCommand": "prisma generate && prisma migrate deploy && next build",
     "env": {
-      "POSTGRES_URL": "@postgres_url"
-    }
+    "POSTGRES_URL": "@postgres_url",
+    "DIRECT_URL": "@direct_url"
   }
+}
