@@ -1,11 +1,13 @@
 {
   "private": true,
   "scripts": {
-    "build": "DATABASE_URL=$POSTGRES_URL prisma generate && next build",
+    "build": "DATABASE_URL=$POSTGRES_URL prisma migrate deploy && DATABASE_URL=$POSTGRES_URL prisma generate && next build",
     "dev": "next dev --turbo",
     "start": "next start",
     "lint": "next lint",
-    "seed": "NODE_PATH=. ts-node --project tsconfig.seed.json prisma/seed.ts"
+    "seed": "NODE_PATH=. ts-node --project tsconfig.seed.json prisma/seed.ts",
+    "postinstall": "prisma generate",
+    "migrate:deploy": "DATABASE_URL=$POSTGRES_URL prisma migrate deploy"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.4",
