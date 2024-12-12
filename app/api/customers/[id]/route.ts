@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/prisma/prisma';
 
 export async function GET(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -29,6 +29,7 @@ export async function GET(
     
     return NextResponse.json(customer);
   } catch (error) {
+    console.error('Error fetching customer:', error);
     return NextResponse.json(
       { error: 'Failed to fetch customer' },
       { status: 500 }
@@ -37,7 +38,7 @@ export async function GET(
 }
 
 export async function PUT(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -48,6 +49,7 @@ export async function PUT(
     });
     return NextResponse.json(customer);
   } catch (error) {
+    console.error('Error updating customer:', error);
     return NextResponse.json(
       { error: 'Failed to update customer' },
       { status: 500 }
@@ -56,7 +58,7 @@ export async function PUT(
 }
 
 export async function DELETE(
-  request: Request,
+  request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -65,6 +67,7 @@ export async function DELETE(
     });
     return new NextResponse(null, { status: 204 });
   } catch (error) {
+    console.error('Error deleting customer:', error);
     return NextResponse.json(
       { error: 'Failed to delete customer' },
       { status: 500 }
